@@ -40,7 +40,7 @@ pat_sql = """
             join MDW_DEEP.Dimensional.DepartmentDim dd on dd.DepartmentDurableKey = aef.DepartmentDurableKey
             join MDW_DEEP.Dimensional.PatientDim pd on pd.PatientDurableKey = aef.PatientDurableKey
             where dd.DepartmentDurableKey = '894933337'
-            and aef.AppointmentStatus in ('Completed', 'Arrived')
+            and aef.AppointmentStatus in ('Completed', 'Arrived', 'Scheduled')
             and convert(date, aef.AppointmentDateDurableKey) between dateadd(day, -2, convert(date, getdate())) and dateadd(day, 7, convert(date, getdate()))
             )
             and cpef.ProcedureCodeSet in ('cp', 'cpt4')
