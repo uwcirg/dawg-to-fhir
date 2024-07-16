@@ -32,21 +32,12 @@ pat_sql = """
             /* CPR patients who have/had a scheduled visit in -2 to +7 days and also ever had one of the procedures of interest */
             select distinct pd.PatientEpicId pat_id, case when pd.PatientMrnUwmc is not NULL then pd.PatientMrnUwmc when pd.PatientMrnHmc is not NULL then pd.PatientMrnHmc when pd.PatientMrnUwpn is not NULL then pd.PatientMrnUwpn end mrn,
             pd.FirstName first_name, pd.LastName last_name, pd.BirthDateDurableKey birth_date, case when pd.SexAbbreviation = 'M' then 'male' when pd.SexAbbreviation = 'F' then 'female' when pd.SexAbbreviation in ('X', 'NB', 'I', 'ANL') then 'other' else 'unknown' end sex
-            from MDW_DEEP.Dimensional.CombinedProcedureEventFact cpef
-            join MDW_DEEP.Dimensional.PatientDim pd on cpef.PatientDurableKey = pd.PatientDurableKey
-            where cpef.PatientDurableKey in (
-            select distinct pd.PatientDurableKey
-            from MDW_DEEP.Dimensional.VisitFact aef
+            from MDW_DEEP.Dimensional.PatientDim pd
+            join MDW_DEEP.Dimensional.VisitFact aef on pd.PatientDurableKey = aef.PatientDurableKey
             join MDW_DEEP.Dimensional.DepartmentDim dd on dd.DepartmentDurableKey = aef.DepartmentDurableKey
-            join MDW_DEEP.Dimensional.PatientDim pd on pd.PatientDurableKey = aef.PatientDurableKey
             where dd.DepartmentDurableKey = '894933337'
             and aef.AppointmentStatus in ('Completed', 'Arrived', 'Scheduled')
             and convert(date, aef.AppointmentDateDurableKey) between dateadd(day, -2, convert(date, getdate())) and dateadd(day, 7, convert(date, getdate()))
-            )
-            and cpef.ProcedureCodeSet in ('cp', 'cpt4')
-            and cpef.ProcedureCode in ('1009020', '1009077', '1009065', '1009019', '1009032')
-            and cpef.ProcedureStartInstant is not NULL
-            and convert(date, cpef.ProcedureStartInstant) <= convert(date, getdate())
           """
 
 proc_sql = """
