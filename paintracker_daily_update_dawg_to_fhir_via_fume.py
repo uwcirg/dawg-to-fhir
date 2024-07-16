@@ -128,179 +128,188 @@ for pat_row in pat_vals:
         log_it("FHIR patient query URL: " + fhir_query_response.url)
 
     if fhir_query_response is not None:
-        fhir_query_response
-        fhir_query_reply = fhir_query_response.json()
-
-        if debug_level > 8:
-            log_it("FHIR patient query response: " + json.dumps(fhir_query_reply))
-    
-        if fhir_query_reply["total"] > 1:
-            log_it("ERROR: Multiple existing patients found with same ID (" + str(pat_data['pat_id']) + "), this should never happen... exiting.")
+        if fhir_query_response.status_code != '200':
+            log_it("FHIR patient query failed, status code: " + str(fhir_query_response.status_code))
+            break
         else:
-            if fhir_query_reply["total"] == 1:
-                if "entry" in fhir_query_reply:                                     # Existing patient found, update
-                    log_it("Patient ID (" + str(pat_data['pat_id']) + ") found in FHIR store, updating...")
-                    request_method = "PUT"
-                    patient_hapi_id = fhir_query_reply["entry"][0]["resource"]["id"]
-
-                    if debug_level > 8:
-                        log_it("Existing patient resource found, HAPI ID (" + str(patient_hapi_id) + ")")
-                
-                    # Need to pull any existing identifiers (except 'epic_patient_id' and 'mrn') out of the existing patient resource to add them to the update bundle
-                    addl_identifiers = {}
-                    for identifier in fhir_query_reply["entry"][0]["resource"]["identifier"]:
-                        if identifier["system"] in ["http://www.uwmedicine.org/mrn", "http://www.uwmedicine.org/epic_patient_id"]:
-                            continue
-
+            fhir_query_reply = fhir_query_response.json()
+    
+            if debug_level > 8:
+                log_it("FHIR patient query response: " + json.dumps(fhir_query_reply))
+        
+            if fhir_query_reply["total"] > 1:
+                log_it("ERROR: Multiple existing patients found with same ID (" + str(pat_data['pat_id']) + "), this should never happen... exiting.")
+            else:
+                if fhir_query_reply["total"] == 1:
+                    if "entry" in fhir_query_reply:                                     # Existing patient found, update
+                        log_it("Patient ID (" + str(pat_data['pat_id']) + ") found in FHIR store, updating...")
+                        request_method = "PUT"
+                        patient_hapi_id = fhir_query_reply["entry"][0]["resource"]["id"]
+    
                         if debug_level > 8:
-                            log_it("Adding existing identifier to updated patient resource bundle: " + identifier["system"] + "|" + identifier["value"])
+                            log_it("Existing patient resource found, HAPI ID (" + str(patient_hapi_id) + ")")
                     
-                        updated_pat_map = pat_map + """
+                        # Need to pull any existing identifiers (except 'epic_patient_id' and 'mrn') out of the existing patient resource to add them to the update bundle
+                        addl_identifiers = {}
+                        for identifier in fhir_query_reply["entry"][0]["resource"]["identifier"]:
+                            if identifier["system"] in ["http://www.uwmedicine.org/mrn", "http://www.uwmedicine.org/epic_patient_id"]:
+                                continue
+    
+                            if debug_level > 8:
+                                log_it("Adding existing identifier to updated patient resource bundle: " + identifier["system"] + "|" + identifier["value"])
+                        
+                            updated_pat_map = pat_map + """
   * identifier
     * system = '""" + identifier["system"] + """'
     * value = \"""" + identifier["value"] + """\"
     """
-            else:                                                                   # Patient not fouund, insert as new
-                log_it("Patient ID (" + str(pat_data['pat_id']) + ") not found in FHIR store, adding...")
-                request_method = "POST"           
-                patient_hapi_id = None
-            
-            # Generate FHIR patient resource from source data using local FUME instance
-            if updated_pat_map is not None:
-                fume_post_data = json.dumps({'input': pat_data,
-                                             'fume': updated_pat_map})
-            else:
-                fume_post_data = json.dumps({'input': pat_data,
-                                             'fume': pat_map})
-            fume_patient_response = None
-            fume_patient_headers = {'Content-type': 'application/json'}
-            fume_patient_response = requests.post(fume_endpoint, data = fume_post_data, headers = fume_patient_headers)
-
-            if debug_level > 8:
-                log_it("FUME patient POST URL: " + fume_patient_response.url)
-        
-            if fume_patient_response is not None:
-
+                else:                                                                   # Patient not fouund, insert as new
+                    log_it("Patient ID (" + str(pat_data['pat_id']) + ") not found in FHIR store, adding...")
+                    request_method = "POST"           
+                    patient_hapi_id = None
+                
+                # Generate FHIR patient resource from source data using local FUME instance
+                if updated_pat_map is not None:
+                    fume_post_data = json.dumps({'input': pat_data,
+                                                 'fume': updated_pat_map})
+                else:
+                    fume_post_data = json.dumps({'input': pat_data,
+                                                 'fume': pat_map})
+                fume_patient_response = None
+                fume_patient_headers = {'Content-type': 'application/json'}
+                fume_patient_response = requests.post(fume_endpoint, data = fume_post_data, headers = fume_patient_headers)
+    
                 if debug_level > 8:
-                    log_it("FUME patient POST response: " + json.dumps(fume_patient_response.json()))
+                    log_it("FUME patient POST URL: " + fume_patient_response.url)
             
-                log_it("Got FHIR data from FUME, sending to FHIR server...")
-                pat_bundle = {
-                              "resourceType": "Bundle",
-                              "type": "transaction",
-                              "entry": []
-                             }
-                pat_bundle["entry"].append({"resource": fume_patient_response.json(),
-                                            "request": {
-                                                "url": "Patient",
-                                                "method": request_method
-                                               }
-                                          })
-                
-                # Send patient resource to FHIR server
-                fhir_patient_response = None
-                fhir_patient_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
-                                        'Authorization': fhir_auth_token}
-                if request_method == "POST":
-                    fhir_patient_response = requests.post(fhir_endpoint, json = pat_bundle, headers = fhir_patient_headers)
-                else:
-                    fume_patient_response_json = fume_patient_response.json()
-                    fume_patient_response_json["id"] = patient_hapi_id
-                    fhir_patient_response = requests.put(fhir_endpoint + "/Patient/" + patient_hapi_id, json = fume_patient_response_json, headers = fhir_patient_headers)
-                if fhir_patient_response is not None:
-
+                if fume_patient_response is not None:
+    
                     if debug_level > 8:
-                        log_it("FHIR patient " + request_method + " URL: " + fhir_patient_response.url)
+                        log_it("FUME patient POST response: " + json.dumps(fume_patient_response.json()))
                 
-                    fhir_patient_reply = fhir_patient_response.json()
-
-                    if debug_level > 8:
-                        log_it("FHIR patient " + request_method + " response: " + json.dumps(fhir_patient_reply))
-                
-                    if "entry" in fhir_patient_reply:
-                        patient_hapi_id = fhir_patient_reply["entry"][0]["response"]["location"]
+                    log_it("Got FHIR data from FUME, sending to FHIR server...")
+                    pat_bundle = {
+                                  "resourceType": "Bundle",
+                                  "type": "transaction",
+                                  "entry": []
+                                 }
+                    pat_bundle["entry"].append({"resource": fume_patient_response.json(),
+                                                "request": {
+                                                    "url": "Patient",
+                                                    "method": request_method
+                                                   }
+                                              })
+                    
+                    # Send patient resource to FHIR server
+                    fhir_patient_response = None
+                    fhir_patient_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
+                                            'Authorization': fhir_auth_token}
                     if request_method == "POST":
-                        patient_action = "added"
+                        fhir_patient_response = requests.post(fhir_endpoint, json = pat_bundle, headers = fhir_patient_headers)
                     else:
-                        patient_action = "updated"
-                    log_it("Patient ID (" + str(pat_data['pat_id']) + ") resource " + patient_action + ", HAPI ID (" + str(patient_hapi_id) + ")...")
-                    pat_cnt = pat_cnt + 1
-                    
-                    # Get procedures for patient, process and post to FHIR server (unless already exists)
-                    proc_cursor.execute(proc_sql + "'" + pat_row[0] + "'")
-                    proc_vals = proc_cursor.fetchall()
-                    proc_cols = [column[0] for column in proc_cursor.description]
-                    
-                    for proc_row in proc_vals:
-                        post_data = json.dumps({'input': dict(zip(proc_cols, proc_row)),
-                                                'fume': proc_map + "'Patient/" + patient_hapi_id + "'"})
-                        
-                        # Check if procedure resource already exists
-                        fhir_proc_query_response = None
-                        fhir_proc_query_headers = {'Authorization': fhir_auth_token}
-                        fhir_proc_query_params = {'identifier': 'http://www.uwmedicine.org/procedure_id|' + str(proc_row[4])}
-                        fhir_proc_query_response = requests.get(fhir_endpoint + '/Procedure', headers = fhir_proc_query_headers, params = fhir_proc_query_params)
-
+                        fume_patient_response_json = fume_patient_response.json()
+                        fume_patient_response_json["id"] = patient_hapi_id
+                        fhir_patient_response = requests.put(fhir_endpoint + "/Patient/" + patient_hapi_id, json = fume_patient_response_json, headers = fhir_patient_headers)
+                    if fhir_patient_response is not None:
+    
                         if debug_level > 8:
-                            log_it("FHIR procedure query URL: " + fhir_proc_query_response.url)
+                            log_it("FHIR patient " + request_method + " URL: " + fhir_patient_response.url)
                     
-                        if fhir_proc_query_response is not None:
-                            fhir_proc_query_reply = fhir_proc_query_response.json()
+                        fhir_patient_reply = fhir_patient_response.json()
+    
+                        if debug_level > 8:
+                            log_it("FHIR patient " + request_method + " response: " + json.dumps(fhir_patient_reply))
                     
-                            if debug_level > 8:
-                                log_it("FHIR procedure query response: " + json.dumps(fhir_proc_query_reply))
-
-                            if fhir_proc_query_reply["total"] > 0:
-                                log_it("Existing procedure found, skipping...")
-                            else:
-                                fume_proc_response = None
-                                fume_proc_headers = {'Content-type': 'application/json'}
-                                fume_proc_response = requests.post(fume_endpoint, data = post_data, headers = fume_proc_headers)
-
-                                if debug_level > 8:
-                                    log_it("FUME procedure POST URL: " + fume_proc_response.url)
-                            
-                                if fume_proc_response is not None:
-                                    log_it("Got FHIR data from FUME, sending to FHIR server...")
-
-                                    if debug_level > 8:
-                                        log_it("FUME procedure POST response: " + json.dumps(fume_proc_response.json()))
-                                
+                        if "entry" in fhir_patient_reply:
+                            patient_hapi_id = fhir_patient_reply["entry"][0]["response"]["location"]
+                        if request_method == "POST":
+                            patient_action = "added"
+                        else:
+                            patient_action = "updated"
+                        log_it("Patient ID (" + str(pat_data['pat_id']) + ") resource " + patient_action + ", HAPI ID (" + str(patient_hapi_id) + ")...")
+                        pat_cnt = pat_cnt + 1
                         
-                                    proc_bundle = {
-                                                  "resourceType": "Bundle",
-                                                  "type": "transaction",
-                                                  "entry": []
-                                                 }
-                                    proc_bundle["entry"].append({"resource": fume_proc_response.json(),
-                                                                "request": {
-                                                                    "url": "Procedure",
-                                                                    "method": "POST"
-                                                                   }
-                                                              })
-                                
-                                    fhir_proc_response = None
-                                    fhir_proc_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
-                                                         'Authorization': fhir_auth_token}
-                                    fhir_proc_response = requests.post(fhir_endpoint, json = proc_bundle, headers = fhir_proc_headers)
-
+                        # Get procedures for patient, process and post to FHIR server (unless already exists)
+                        proc_cursor.execute(proc_sql + "'" + pat_row[0] + "'")
+                        proc_vals = proc_cursor.fetchall()
+                        proc_cols = [column[0] for column in proc_cursor.description]
+                        
+                        for proc_row in proc_vals:
+                            post_data = json.dumps({'input': dict(zip(proc_cols, proc_row)),
+                                                    'fume': proc_map + "'Patient/" + patient_hapi_id + "'"})
+                            
+                            # Check if procedure resource already exists
+                            fhir_proc_query_response = None
+                            fhir_proc_query_headers = {'Authorization': fhir_auth_token}
+                            fhir_proc_query_params = {'identifier': 'http://www.uwmedicine.org/procedure_id|' + str(proc_row[4])}
+                            fhir_proc_query_response = requests.get(fhir_endpoint + '/Procedure', headers = fhir_proc_query_headers, params = fhir_proc_query_params)
+    
+                            if debug_level > 8:
+                                log_it("FHIR procedure query URL: " + fhir_proc_query_response.url)
+                        
+                            if fhir_proc_query_response is not None:
+                                if fhir_proc_query_response.status_code != '200':
+                                    log_it("FHIR procedure query failed, status code: " + str(fhir_proc_query_response.status_code))
+                                    break
+                                else:
+                                    fhir_proc_query_reply = fhir_proc_query_response.json()
+                            
                                     if debug_level > 8:
-                                        log_it("FHIR procedure POST URL: " + fhir_proc_response.url)
-                                
-                                    if fhir_proc_response is not None and "entry" in fhir_proc_response.json():
-
-                                        if debug_level > 8:
-                                            log_it("FHIR procedure POST response: " + json.dumps(fhir_proc_response.json()))
-
-                                        fhir_proc_id = fhir_proc_response.json()["entry"][0]["response"]["location"].split("/")[1]
-                                        log_it("Procedure ID (" + str(proc_row[4]) + ") resource added, HAPI ID (" + str(fhir_proc_id) + ")...")
-                                        proc_cnt = proc_cnt + 1
+                                        log_it("FHIR procedure query response: " + json.dumps(fhir_proc_query_reply))
+        
+                                    if fhir_proc_query_reply["total"] > 0:
+                                        log_it("Existing procedure found, skipping...")
                                     else:
-                                        log_it("ERROR: Unable to add procedure resource with ID (" + str(proc_row[4]) + "), skipping...")
+                                        fume_proc_response = None
+                                        fume_proc_headers = {'Content-type': 'application/json'}
+                                        fume_proc_response = requests.post(fume_endpoint, data = post_data, headers = fume_proc_headers)
+        
+                                        if debug_level > 8:
+                                            log_it("FUME procedure POST URL: " + fume_proc_response.url)
+                                    
+                                        if fume_proc_response is not None:
+                                            log_it("Got FHIR data from FUME, sending to FHIR server...")
+        
+                                            if debug_level > 8:
+                                                log_it("FUME procedure POST response: " + json.dumps(fume_proc_response.json()))
+                                        
+                                
+                                            proc_bundle = {
+                                                          "resourceType": "Bundle",
+                                                          "type": "transaction",
+                                                          "entry": []
+                                                         }
+                                            proc_bundle["entry"].append({"resource": fume_proc_response.json(),
+                                                                        "request": {
+                                                                            "url": "Procedure",
+                                                                            "method": "POST"
+                                                                           }
+                                                                      })
+                                        
+                                            fhir_proc_response = None
+                                            fhir_proc_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
+                                                                 'Authorization': fhir_auth_token}
+                                            fhir_proc_response = requests.post(fhir_endpoint, json = proc_bundle, headers = fhir_proc_headers)
+        
+                                            if debug_level > 8:
+                                                log_it("FHIR procedure POST URL: " + fhir_proc_response.url)
+                                        
+                                            if fhir_proc_response is not None and "entry" in fhir_proc_response.json():
+        
+                                                if debug_level > 8:
+                                                    log_it("FHIR procedure POST response: " + json.dumps(fhir_proc_response.json()))
+        
+                                                fhir_proc_id = fhir_proc_response.json()["entry"][0]["response"]["location"].split("/")[1]
+                                                log_it("Procedure ID (" + str(proc_row[4]) + ") resource added, HAPI ID (" + str(fhir_proc_id) + ")...")
+                                                proc_cnt = proc_cnt + 1
+                                            else:
+                                                log_it("ERROR: Unable to add procedure resource with ID (" + str(proc_row[4]) + "), skipping...")
+                            else:
+                                log_it("ERROR: Unable to query FHIR store... exiting.")
+                    else:
+                        log_it("ERROR: Unable to add patient resource with ID (" + str(pat_data["pat_id"]) + "), skipping...")
                 else:
-                    log_it("ERROR: Unable to add patient resource with ID (" + str(pat_data["pat_id"]) + "), skipping...")
-            else:
-                log_it("ERROR: No data returned from FUME... exiting.")
+                    log_it("ERROR: No data returned from FUME... exiting.")
     else:
         log_it("ERROR: Unable to query FHIR store... exiting.")
 
