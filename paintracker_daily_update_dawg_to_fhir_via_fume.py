@@ -46,7 +46,7 @@ proc_sql = """
             					 when cpef.OrderStatusCode in (3, 5) then 'completed'
             					 when cpef.OrderStatusCode = 4 then 'not-done'
             					 else 'unknown'
-            				end status_code, cpef.ProcedureCode cpt_code, cpef.Description descr, format(cpef.ProcedureStartInstant, 'yyyy-MM-dd') proc_date,
+            				end status_code, concat(cpef.ProcedureCode, case when cpef.Modifiers is not NULL then concat('-', cpef.Modifiers) else '' end) cpt_code, cpef.Description descr, format(cpef.ProcedureStartInstant, 'yyyy-MM-dd') proc_date,
                             cpef.SourceSystemId uniq_id
             from MDW_DEEP.Dimensional.CombinedProcedureEventFact cpef
             join MDW_DEEP.Dimensional.PatientDim pd on cpef.PatientDurableKey = pd.PatientDurableKey
