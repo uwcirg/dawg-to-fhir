@@ -29,7 +29,7 @@ dawg_cnxn.add_output_converter(pyodbc.SQL_BIT, handle_bit_type)
 pat_cursor = dawg_cnxn.cursor()
 proc_cursor = dawg_cnxn.cursor()
 pat_sql = """
-            /* CPR patients who have/had a scheduled visit in -2 to +7 days and also ever had one of the procedures of interest */
+            /* CPR patients who have/had a scheduled visit in -2 to +7 days */
             select distinct pd.PatientEpicId pat_id, case when pd.PatientMrnUwmc is not NULL then pd.PatientMrnUwmc when pd.PatientMrnHmc is not NULL then pd.PatientMrnHmc when pd.PatientMrnUwpn is not NULL then pd.PatientMrnUwpn end mrn,
             pd.FirstName first_name, pd.LastName last_name, pd.BirthDateDurableKey birth_date, case when pd.SexAbbreviation = 'M' then 'male' when pd.SexAbbreviation = 'F' then 'female' when pd.SexAbbreviation in ('X', 'NB', 'I', 'ANL') then 'other' else 'unknown' end sex
             from MDW_DEEP.Dimensional.PatientDim pd
@@ -51,7 +51,7 @@ proc_sql = """
             from MDW_DEEP.Dimensional.CombinedProcedureEventFact cpef
             join MDW_DEEP.Dimensional.PatientDim pd on cpef.PatientDurableKey = pd.PatientDurableKey
             where cpef.ProcedureCodeSet in ('cp', 'cpt4')
-            and cpef.ProcedureCode in ('1009020', '1009077', '1009065', '1009019', '1009032')
+            and cpef.ProcedureCode in ('1009020', '1009077', '1009065', '1009019', '1009032', '20552', '20553', '20526', '20550', '20551', '20560', '20561', '64490', '64491', '64492', '0213T', '0214T', '0215T', '64493', '64494', '64495', '0216T', '0217T', '0218T', '20600', '20604', '20605', '20606', '20610', '20611', '27096', '20552', '64451', '62321', '62320', '62325', '62324', '62323', '62322', '62327', '62326', '64479', '64480', '64483', '64484', '62323', '62322', '62318', '62319', '62273', '64400', '64999X', '64405', '64615', '64408', '64999Y', '64999Z', '64415', '64417', '64418', '64461', '64462', '64999V', '64420', '64421', '64486', '64488', '64425', '64425', '64430', '64445', '64447', '64449', '64454', '64455', '64450', '64505', '64999U', '64510', '64517', '64520', '64520', '64530', '96372', '96369', '96365', '96366', '64633', '64634', '64635', '64636', '64600', '64620', '64630', '64624', '64625', '64640', '64680', '64681', '63650', '63655', '63661', '63662', '63663', '63664', '63685', '63688', '95970', '95971', '95972', '95974', '95975', '64555', '64585', '95970', '95971', '95972', 'XFLNP', '77003', '77012', '76942', '76882', '76536', '99156', '99157')
             and cpef.ProcedureStartInstant is not NULL
             and convert(date, cpef.ProcedureStartInstant) between convert(date, dateadd(year, -5, getdate())) and convert(date, getdate())
             and pd.PatientEpicId = 
