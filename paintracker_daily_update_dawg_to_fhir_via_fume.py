@@ -69,6 +69,10 @@ debug_level = config['DEBUG_LEVEL']
 pat_cnt = 0
 proc_cnt = 0
 proc_del_cnt = 0
+
+# Open a session to the FHIR endpoint instead of making individual calls as this speeds things up significantly
+session = requests.Session()
+
 for pat_row in pat_vals:
     patient_request_method = ""
     updated_pat_map = None
@@ -79,7 +83,7 @@ for pat_row in pat_vals:
     fhir_query_response = None
     fhir_query_headers = {'Authorization': fhir_auth_token}
     fhir_query_params = {'identifier': 'uwDAL_Clarity|' + str(pat_data['pat_id']) + ',http://www.uwmedicine.org/epic_patient_id|' + str(pat_data['pat_id'])}
-    fhir_query_response = requests.get(fhir_endpoint + '/Patient', headers = fhir_query_headers, params = fhir_query_params)
+    fhir_query_response = session.get(fhir_endpoint + '/Patient', headers = fhir_query_headers, params = fhir_query_params)
 
     if debug_level > '8':
         log_it("FHIR patient query URL: " + fhir_query_response.url)
@@ -134,7 +138,7 @@ for pat_row in pat_vals:
                                                  'fume': pat_map})
                 fume_patient_response = None
                 fume_patient_headers = {'Content-type': 'application/json'}
-                fume_patient_response = requests.post(fume_endpoint, data = fume_post_data, headers = fume_patient_headers)
+                fume_patient_response = session.post(fume_endpoint, data = fume_post_data, headers = fume_patient_headers)
     
                 if debug_level > '8':
                     log_it("FUME patient POST URL: " + fume_patient_response.url)
@@ -162,11 +166,11 @@ for pat_row in pat_vals:
                     fhir_patient_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
                                             'Authorization': fhir_auth_token}
                     if patient_request_method == "POST":
-                        fhir_patient_response = requests.post(fhir_endpoint, json = pat_bundle, headers = fhir_patient_headers)
+                        fhir_patient_response = session.post(fhir_endpoint, json = pat_bundle, headers = fhir_patient_headers)
                     else:
                         fume_patient_response_json = fume_patient_response.json()
                         fume_patient_response_json["id"] = patient_hapi_id
-                        fhir_patient_response = requests.put(fhir_endpoint + "/Patient/" + patient_hapi_id, json = fume_patient_response_json, headers = fhir_patient_headers)
+                        fhir_patient_response = session.put(fhir_endpoint + "/Patient/" + patient_hapi_id, json = fume_patient_response_json, headers = fhir_patient_headers)
                     if fhir_patient_response is not None:
     
                         if debug_level > '8':
@@ -192,7 +196,7 @@ for pat_row in pat_vals:
                             fhir_proc_query_response = None
                             fhir_proc_query_headers = {'Authorization': fhir_auth_token}
                             fhir_proc_query_params = {'subject': 'Patient/' + str(patient_hapi_id)}
-                            fhir_proc_query_response = requests.get(fhir_endpoint + '/Procedure', headers = fhir_proc_query_headers, params = fhir_proc_query_params)
+                            fhir_proc_query_response = session.get(fhir_endpoint + '/Procedure', headers = fhir_proc_query_headers, params = fhir_proc_query_params)
     
                             if debug_level > '8':
                                 log_it("FHIR procedure query URL: " + fhir_proc_query_response.url)
@@ -242,7 +246,7 @@ for pat_row in pat_vals:
         
                                             fume_proc_response = None
                                             fume_proc_headers = {'Content-type': 'application/json'}
-                                            fume_proc_response = requests.post(fume_endpoint, data = post_data, headers = fume_proc_headers)
+                                            fume_proc_response = session.post(fume_endpoint, data = post_data, headers = fume_proc_headers)
             
                                             if debug_level > '8':
                                                 log_it("FUME procedure POST URL: " + fume_proc_response.url)
@@ -270,11 +274,11 @@ for pat_row in pat_vals:
                                                 fhir_proc_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
                                                                      'Authorization': fhir_auth_token}
                                                 if proc_request_method == "POST":
-                                                    fhir_proc_response = requests.post(fhir_endpoint, json = proc_bundle, headers = fhir_proc_headers)
+                                                    fhir_proc_response = session.post(fhir_endpoint, json = proc_bundle, headers = fhir_proc_headers)
                                                 else:
                                                     fume_proc_response_json = fume_proc_response.json()
                                                     fume_proc_response_json["id"] = proc_hapi_id
-                                                    fhir_proc_response = requests.put(fhir_endpoint + "/Procedure/" + proc_hapi_id, json = fume_proc_response_json, headers = fhir_proc_headers)
+                                                    fhir_proc_response = session.put(fhir_endpoint + "/Procedure/" + proc_hapi_id, json = fume_proc_response_json, headers = fhir_proc_headers)
             
                                                 if debug_level > '8':
                                                     log_it("FHIR procedure " + proc_request_method + " URL: " + fhir_proc_response.url)
@@ -301,7 +305,7 @@ for pat_row in pat_vals:
                                     # Delete any existing FHIR procedure resources not found in the current list of patient procedures from the DAWG
                                     for proc_id in list(set(existing_fhir_proc_ids.keys()).difference(dawg_proc_ids)):
                                         fhir_proc_del_response = None
-                                        fhir_proc_del_response = requests.delete(fhir_endpoint + "/Procedure/" + existing_fhir_proc_ids[proc_id])
+                                        fhir_proc_del_response = session.delete(fhir_endpoint + "/Procedure/" + existing_fhir_proc_ids[proc_id])
     
                                         if debug_level > '8':
                                             log_it("FHIR procedure DELETE URL: " + fhir_proc_del_response.url)
