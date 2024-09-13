@@ -309,7 +309,10 @@ for pat_row in pat_vals:
                                         if fhir_proc_del_response is not None:
     
                                             if debug_level > '8':
-                                                log_it("FHIR procedure DELETE response: " + json.dumps(fhir_proc_del_response.json()))
+                                                if fhir_proc_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                    log_it("FHIR procedure DELETE response: " + json.dumps(fhir_proc_del_response.json()))
+                                                else:
+                                                    log_it("FHIR procedure DELETE response: " + fhir_proc_del_response.text)
     
                                             log_it("Procedure ID (" + str(proc_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_proc_ids[proc_id]) + ")...")
                                             proc_del_cnt = proc_del_cnt + 1
