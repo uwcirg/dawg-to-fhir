@@ -82,7 +82,7 @@ for pat_row in pat_vals:
     # Check if patient already exists in FHIR store, update if found, insert if not
     fhir_query_response = None
     fhir_query_headers = {'Authorization': fhir_auth_token}
-    fhir_query_params = {'identifier': 'uwDAL_Clarity|' + str(pat_data['pat_id']) + ',http://www.uwmedicine.org/epic_patient_id|' + str(pat_data['pat_id'])}
+    fhir_query_params = {'identifier': 'uwDAL_Clarity|' + str(pat_data['pat_id']) + ',http://www.uwmedicine.org/epic_patient_id|' + str(pat_data['pat_id']), 'active': 'true'}
     fhir_query_response = session.get(fhir_endpoint + '/Patient', headers = fhir_query_headers, params = fhir_query_params)
 
     if debug_level > '8':
