@@ -133,10 +133,13 @@ def add_update_reference_resource(input_params):
     return_result['resource_reference'] = resource_reference
     return return_result
 
-config = dotenv_values("config.env")
+config_main = dotenv_values("config_main.env")
+config_secrets = dotenv_values("config_secrets.env")
+config_dawg = dotenv_values("config_dawg.env")
+config_fume = dotenv_values("config_fume.env")
 
 logging.basicConfig(
-    filename=config['LOG_FILE_PATH'],
+    filename=config_main['LOG_FILE_PATH'],
     filemode='a',
     format='%(asctime)s %(levelname)-8s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S')
@@ -144,7 +147,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Set debug level, anything less than 9 is "info", 9 or greater is "debug"
-debug_level = int(config['DEBUG_LEVEL'])
+debug_level = int(config_main['DEBUG_LEVEL'])
 if debug_level > 8:
     logger.setLevel(logging.DEBUG)
 else:
@@ -158,33 +161,33 @@ dawg_cnxn.add_output_converter(pyodbc.SQL_BIT, handle_bit_type)
 pat_cursor = dawg_cnxn.cursor()
 proc_cursor = dawg_cnxn.cursor()
 meds_cursor = dawg_cnxn.cursor()
-pat_sql = config['PAT_SQL']
+pat_sql = config_dawg['PAT_SQL']
 
-proc_sql = config['PROC_SQL']
+proc_sql = config_dawg['PROC_SQL']
 
-meds_sql = config['MEDS_SQL']
+meds_sql = config_dawg['MEDS_SQL']
 
-pat_map = config['FUME_PAT_MAP']
+pat_map = config_fume['FUME_PAT_MAP']
 
-proc_base_map = config['FUME_PROC_BASE_MAP']
-proc_enc_map = config['FUME_PROC_ENC_MAP']
+proc_base_map = config_fume['FUME_PROC_BASE_MAP']
+proc_enc_map = config_fume['FUME_PROC_ENC_MAP']
 
-meds_base_map = config['FUME_MEDS_BASE_MAP']
-meds_dispense_map = config['FUME_MEDS_DISPENSE_MAP']
-meds_requester_map = config['FUME_MEDS_REQUESTER_MAP']
-meds_enc_map = config['FUME_MEDS_ENC_MAP']
+meds_base_map = config_fume['FUME_MEDS_BASE_MAP']
+meds_dispense_map = config_fume['FUME_MEDS_DISPENSE_MAP']
+meds_requester_map = config_fume['FUME_MEDS_REQUESTER_MAP']
+meds_enc_map = config_fume['FUME_MEDS_ENC_MAP']
 
-practitioner_base_map = config['FUME_PRACTITIONER_BASE_MAP']
-practitioner_npi_map = config['FUME_PRACTITIONER_NPI_MAP']
+practitioner_base_map = config_fume['FUME_PRACTITIONER_BASE_MAP']
+practitioner_npi_map = config_fume['FUME_PRACTITIONER_NPI_MAP']
 
-location_map = config['FUME_LOCATION_MAP']
+location_map = config_fume['FUME_LOCATION_MAP']
 
-encounter_base_map = config['FUME_ENCOUNTER_BASE_MAP']
-encounter_location_map = config['FUME_ENCOUNTER_LOCATION_MAP']
+encounter_base_map = config_fume['FUME_ENCOUNTER_BASE_MAP']
+encounter_location_map = config_fume['FUME_ENCOUNTER_LOCATION_MAP']
 
-fhir_endpoint = config['FHIR_ENDPOINT']
-fhir_auth_token = config['FHIR_AUTH_TOKEN']
-fume_endpoint = config['FUME_ENDPOINT']
+fhir_endpoint = config_main['FHIR_ENDPOINT']
+fhir_auth_token = config_secrets['FHIR_AUTH_TOKEN']
+fume_endpoint = config_fume['FUME_ENDPOINT']
 
 # Get patient data, process 
 pat_cursor.execute(pat_sql)
@@ -193,7 +196,7 @@ pat_cols = [column[0] for column in pat_cursor.description]
 
 # Get procedure data, store for later use (this speeds things up considerably over querying individually per patient)
 proc_data = {}
-if config["INCLUDE_PROCEDURES"] == '1':
+if config_main["INCLUDE_PROCEDURES"] == '1':
     proc_cursor.execute(proc_sql)
     proc_vals = proc_cursor.fetchall()
     proc_cols = [column[0] for column in proc_cursor.description]
@@ -205,7 +208,7 @@ if config["INCLUDE_PROCEDURES"] == '1':
 
 # Get medication data, store for later use (this speeds things up considerably over querying individually per patient)
 meds_data = {}
-if config["INCLUDE_MEDICATIONS"] == '1':
+if config_main["INCLUDE_MEDICATIONS"] == '1':
     meds_cursor.execute(meds_sql)
     meds_vals = meds_cursor.fetchall()
     meds_cols = [column[0] for column in meds_cursor.description]
@@ -216,9 +219,6 @@ if config["INCLUDE_MEDICATIONS"] == '1':
         meds_data[meds_row[0]].append(dict(zip(meds_cols, meds_row)))
 
 logger.info("=========================== STARTING DAILY RUN =============================")
-
-# Set debug level, anything less than 9 is "info/warning", 9 or greater is "debug"
-debug_level = config['DEBUG_LEVEL']
 
 pat_cnt = 0
 proc_cnt = 0
@@ -346,7 +346,7 @@ for pat_row in pat_vals:
                         pat_cnt = pat_cnt + 1
                         
                         # If configured, process procedures for patient and insert, update, delete as needed
-                        if continue_flag and config["INCLUDE_PROCEDURES"] == '1':
+                        if continue_flag and config_main["INCLUDE_PROCEDURES"] == '1':
                             # Pull all existing procedures for patient from the FHIR store
                             fhir_proc_query_response = None
                             fhir_proc_query_headers = {'Authorization': fhir_auth_token}
@@ -504,7 +504,7 @@ for pat_row in pat_vals:
                                 continue_flag = False
 
                         # If configured, process medications for patient and insert, update, delete as needed
-                        if continue_flag and config["INCLUDE_MEDICATIONS"] == '1':
+                        if continue_flag and config_main["INCLUDE_MEDICATIONS"] == '1':
                             # Pull all existing medications for patient from the FHIR store
                             fhir_meds_query_response = None
                             fhir_meds_query_headers = {'Authorization': fhir_auth_token}
