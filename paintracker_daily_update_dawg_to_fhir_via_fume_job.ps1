@@ -1,4 +1,4 @@
-﻿$Logfile = "C:\Users\jsibley\Desktop\paintracker_daily_update_dawg_to_fhir_via_fume.log"
+$Logfile = "C:\Users\jsibley\Desktop\paintracker_daily_update_dawg_to_fhir_via_fume.log"
 $Timestamp = Get-Date -UFormat "%Y-%m-%d %T"
 Add-content $Logfile -value "[$Timestamp] Starting up FUME API..."
 Start-Job { cd C:\Users\jsibley\Documents\fume-community; npm start }
