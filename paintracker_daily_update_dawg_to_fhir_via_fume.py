@@ -161,11 +161,14 @@ dawg_cnxn.add_output_converter(pyodbc.SQL_BIT, handle_bit_type)
 pat_cursor = dawg_cnxn.cursor()
 proc_cursor = dawg_cnxn.cursor()
 meds_cursor = dawg_cnxn.cursor()
+labs_cursor = dawg_cnxn.cursor()
 pat_sql = config_dawg['PAT_SQL']
 
 proc_sql = config_dawg['PROC_SQL']
 
 meds_sql = config_dawg['MEDS_SQL']
+
+labs_sql = config_dawg['LABS_SQL']
 
 pat_map = config_fume['FUME_PAT_MAP']
 
@@ -176,6 +179,10 @@ meds_base_map = config_fume['FUME_MEDS_BASE_MAP']
 meds_dispense_map = config_fume['FUME_MEDS_DISPENSE_MAP']
 meds_requester_map = config_fume['FUME_MEDS_REQUESTER_MAP']
 meds_enc_map = config_fume['FUME_MEDS_ENC_MAP']
+
+labs_base_map = config_fume['FUME_LABS_BASE_MAP']
+labs_requester_map = config_fume['FUME_LABS_REQUESTER_MAP']
+labs_enc_map = config_fume['FUME_LABS_ENC_MAP']
 
 practitioner_base_map = config_fume['FUME_PRACTITIONER_BASE_MAP']
 practitioner_npi_map = config_fume['FUME_PRACTITIONER_NPI_MAP']
@@ -218,6 +225,17 @@ if config_main["INCLUDE_MEDICATIONS"] == '1':
     for meds_row in meds_vals:
         meds_data[meds_row[0]].append(dict(zip(meds_cols, meds_row)))
 
+labs_data = {}
+if config_main["INCLUDE_LAB_ORDERS"] == '1':
+    labs_cursor.execute(labs_sql)
+    labs_vals = labs_cursor.fetchall()
+    labs_cols = [column[0] for column in labs_cursor.description]
+    # TODO: Fix this, there must be a way to do this in a single loop, but not finding it now
+    for labs_row in labs_vals:
+        labs_data[labs_row[0]] = []
+    for labs_row in labs_vals:
+        labs_data[labs_row[0]].append(dict(zip(labs_cols, labs_row)))
+
 logger.info("=========================== STARTING DAILY RUN =============================")
 
 pat_cnt = 0
@@ -225,6 +243,8 @@ proc_cnt = 0
 proc_del_cnt = 0
 meds_cnt = 0
 meds_del_cnt = 0
+labs_cnt = 0
+labs_del_cnt = 0
 
 reference_resources = {'location': {},
                        'encounter': {},
@@ -681,6 +701,183 @@ for pat_row in pat_vals:
                             else:
                                 logger.critical("Prior error condition met... exiting.")
                                 continue_flag = False
+
+                        # If configured, process lab orders for patient and insert, update, delete as needed
+                        if continue_flag and config_main["INCLUDE_LAB_ORDERS"] == '1':
+                            # Pull all existing lab orders for patient from the FHIR store
+                            fhir_labs_query_response = None
+                            fhir_labs_query_headers = {'Authorization': fhir_auth_token}
+                            fhir_labs_query_params = {'subject': 'Patient/' + str(patient_hapi_id),
+                                                     "identifier": 'http://www.uwmedicine.org/lab_id|'}
+                            fhir_labs_query_response = session.get(fhir_endpoint + '/ServiceRequest', headers = fhir_labs_query_headers, params = fhir_labs_query_params)
+
+                            logger.debug("FHIR lab orders query URL: " + fhir_labs_query_response.url)
+
+                            if fhir_labs_query_response is not None:
+                                if fhir_labs_query_response.status_code != 200:
+                                    logger.critical("FHIR lab orders query failed, status code: " + str(fhir_labs_query_response.status_code) + ", exiting...")
+                                    continue_flag = False
+
+                                    logger.debug("FHIR lab orders query response: " + json.dumps(fhir_labs_query_response.json()))
+
+                                else:
+                                    fhir_labs_query_reply = fhir_labs_query_response.json()
+                                    logger.debug("FHIR lab orders query response: " + json.dumps(fhir_labs_query_reply))
+
+                                    existing_fhir_labs_ids = {}
+                                    if "entry" in fhir_labs_query_reply:
+                                        for l in range(0, len(fhir_labs_query_reply["entry"])):
+                                            lab = fhir_labs_query_reply["entry"][l]
+                                            existing_fhir_labs_ids[str(lab["resource"]["identifier"][0]["value"])] = str(lab["resource"]["id"])
+
+                                    dawg_labs_ids = []
+                                    if str(pat_data['pat_id']) in labs_data.keys():
+                                        logger.info("Processing lab order data for patient...")
+                                        for labs_row in labs_data[str(pat_data['pat_id'])]:
+                                            labs_request_method = ""
+                                            labs_hapi_id = None
+
+                                            # insert/update location resource to reference from lab order resource
+                                            location_result = add_update_reference_resource({'identifier_system': 'http://www.uwmedicine.org/epic_department_id',
+                                                                                             'identifier_code': labs_row['visit_dept_id'],
+                                                                                             'resource_type': "Location",
+                                                                                             'fume_input_data': labs_row,
+                                                                                             'fume_map': location_map
+                                                                                            })
+
+                                            # insert/update encounter resource to reference from lab order resource
+                                            encounter_result = add_update_reference_resource({'identifier_system': 'http://www.uwmedicine.org/epic_encounter_id',
+                                                                                              'identifier_code': labs_row['enc_id'],
+                                                                                              'resource_type': "Encounter",
+                                                                                              'fume_input_data': labs_row,
+                                                                                              'fume_map': encounter_base_map + "'Patient/" + str(patient_hapi_id) + "'" + encounter_location_map + "'Location/" + str(location_result['resource_reference']) + "'"
+                                                                                             })
+
+                                            # insert/update practitioner resource to reference from lab order resource
+                                            if labs_row['provider_id'] != "-1":
+                                                adjusted_practitioner_map = practitioner_base_map
+                                                if labs_row['npi'] is not None:
+                                                    adjusted_practitioner_map = practitioner_base_map + practitioner_npi_map
+
+                                                practitioner_result = add_update_reference_resource({'identifier_system': 'http://www.uwmedicine.org/epic_provider_id',
+                                                                                                     'identifier_code': labs_row['provider_id'],
+                                                                                                     'resource_type': "Practitioner",
+                                                                                                     'fume_input_data': labs_row,
+                                                                                                     'fume_map': adjusted_practitioner_map
+                                                                                                    })
+                                            else:
+                                                practitioner_result = {'return_code': 0}
+
+                                            if location_result['return_code'] == 0 and encounter_result['return_code'] == 0 and practitioner_result['return_code'] == 0:
+                                                dawg_labs_ids.append(str(labs_row['uniq_id']))
+
+                                                adjusted_labs_map = labs_base_map + "'Patient/" + str(patient_hapi_id) + "'" + labs_enc_map + "'Encounter/" + str(encounter_result['resource_reference']) + "'"
+
+                                                if labs_row['provider_id'] != "-1":
+                                                    adjusted_labs_map +=  labs_requester_map + "'Practitioner/" + str(practitioner_result['resource_reference']) + "'"
+
+                                                post_data = json.dumps({'input': labs_row,
+                                                                        'fume': adjusted_labs_map})
+
+                                                if str(labs_row['uniq_id']) in existing_fhir_labs_ids.keys():
+                                                    logger.info("Existing lab order found, upadating...")
+                                                    labs_request_method = "PUT"
+                                                    labs_hapi_id = existing_fhir_labs_ids[str(labs_row['uniq_id'])]
+
+                                                    logger.debug("Existing lab order resource found, HAPI ID (" + str(labs_hapi_id) + ")")
+
+                                                else:
+                                                    labs_request_method = 'POST'
+                                                    labs_hapi_id = None
+
+                                                fume_labs_response = None
+                                                fume_labs_headers = {'Content-type': 'application/json'}
+                                                fume_labs_response = session.post(fume_endpoint, data = post_data, headers = fume_labs_headers)
+
+                                                logger.debug("FUME lab order POST URL: " + fume_labs_response.url)
+
+                                                if fume_labs_response is not None:
+                                                    logger.info("Got FHIR data from FUME, sending to FHIR server...")
+
+                                                    logger.debug("FUME lab order POST response: " + json.dumps(fume_labs_response.json()))
+
+
+                                                    labs_bundle = {
+                                                                  "resourceType": "Bundle",
+                                                                  "type": "transaction",
+                                                                  "entry": []
+                                                                 }
+                                                    labs_bundle["entry"].append({"resource": fume_labs_response.json(),
+                                                                                "request": {
+                                                                                    "url": "ServiceRequest",
+                                                                                    "method": labs_request_method
+                                                                                   }
+                                                                              })
+                                                    fhir_labs_response = None
+                                                    fhir_labs_headers = {'Content-type': 'application/fhir+json;charset=utf-8',
+                                                                         'Authorization': fhir_auth_token}
+                                                    if labs_request_method == "POST":
+                                                        fhir_labs_response = session.post(fhir_endpoint, json = labs_bundle, headers = fhir_labs_headers)
+                                                    else:
+                                                        fume_labs_response_json = fume_labs_response.json()
+                                                        fume_labs_response_json["id"] = labs_hapi_id
+                                                        fhir_labs_response = session.put(fhir_endpoint + "/ServiceRequest/" + labs_hapi_id, json = fume_labs_response_json, headers = fhir_labs_headers)
+
+                                                    logger.debug("FHIR lab order " + labs_request_method + " URL: " + fhir_labs_response.url)
+
+                                                    if fhir_labs_response is not None:
+                                                        fhir_labs_reply = fhir_labs_response.json()
+
+                                                        logger.debug("FHIR lab order " + labs_request_method + " response: " + json.dumps(fhir_labs_reply))
+
+                                                        if "entry" in fhir_labs_reply:
+                                                            labs_hapi_id = fhir_labs_reply["entry"][0]["response"]["location"].split("/")[1]
+                                                        if labs_request_method == "POST":
+                                                            labs_action = "added"
+                                                        else:
+                                                            labs_action = "updated"
+                                                        logger.info("ServiceRequest ID (" + str(labs_row['uniq_id']) + ") resource " + labs_action + ", HAPI ID (" + str(labs_hapi_id) + ")...")
+                                                        labs_cnt = labs_cnt + 1
+                                                    else:
+                                                        logger.warning("Unable to add lab order resource with ID (" + str(labs_row['uniq_id']) + "), skipping...")
+                                                else:
+                                                    logger.critical("No data returned from FUME... exiting.")
+                                                    continue_flag = False
+                                            else:
+                                                logger.critical("Error code returned from called subroutine... exiting.")
+                                                continue_flag = False
+                                    else:
+                                        logger.info("No lab orders found for patient, skipping...")
+
+                                    # Delete any existing FHIR lab order resources not found in the current list of patient lab orders from the DAWG
+                                    if continue_flag:
+                                        for labs_id in list(set(existing_fhir_labs_ids.keys()).difference(dawg_labs_ids)):
+                                            fhir_labs_del_response = None
+                                            fhir_labs_del_response = session.delete(fhir_endpoint + "/ServiceRequest/" + existing_fhir_labs_ids[labs_id])
+
+                                            logger.debug("FHIR lab order DELETE URL: " + fhir_labs_del_response.url)
+
+                                            if fhir_labs_del_response is not None:
+
+                                                if fhir_labs_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                    logger.debug("FHIR lab order DELETE response: " + json.dumps(fhir_labs_del_response.json()))
+                                                else:
+                                                    logger.debug("FHIR lab order DELETE response: " + fhir_labs_del_response.text)
+
+                                                logger.info("ServiceRequest ID (" + str(labs_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_labs_ids[labs_id]) + ")...")
+                                                labs_del_cnt = labs_del_cnt + 1
+                                    else:
+                                        logger.critical("Prior error condition met... exiting.")
+                                        continue_flag = False
+                            else:
+                                logger.critical("Unable to query FHIR store for lab orders... exiting.")
+                                continue_flag = False
+                        else:
+                            if continue_flag:
+                                logger.info("Not processing medications due to coniguration setting...")
+                            else:
+                                logger.critical("Prior error condition met... exiting.")
+                                continue_flag = False
                     else:
                         logger.warning("Unable to add patient resource with ID (" + str(pat_data["pat_id"]) + "), skipping...")
                 else:
@@ -698,6 +895,8 @@ logger.info("Total procedures added/updated: " + str(proc_cnt))
 logger.info("Total procedures deleted: " + str(proc_del_cnt))
 logger.info("Total medications added/updated: " + str(meds_cnt))
 logger.info("Total medications deleted: " + str(meds_del_cnt))
+logger.info("Total lab orders added/updated: " + str(labs_cnt))
+logger.info("Total lab orders deleted: " + str(labs_del_cnt))
 logger.info("Total locations added/updated: " + str(len(reference_resources['location'].keys())))
 logger.info("Total encounters added/updated: " + str(len(reference_resources['encounter'].keys())))
 logger.info("Total practitioners added/updated: " + str(len(reference_resources['practitioner'].keys())))
