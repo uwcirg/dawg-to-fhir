@@ -708,7 +708,7 @@ for pat_row in pat_vals:
                             fhir_labs_query_response = None
                             fhir_labs_query_headers = {'Authorization': fhir_auth_token}
                             fhir_labs_query_params = {'subject': 'Patient/' + str(patient_hapi_id),
-                                                     "identifier": 'http://www.uwmedicine.org/lab_id|'}
+                                                     "identifier": 'http://www.uwmedicine.org/lab_order_id|'}
                             fhir_labs_query_response = session.get(fhir_endpoint + '/ServiceRequest', headers = fhir_labs_query_headers, params = fhir_labs_query_params)
 
                             logger.debug("FHIR lab orders query URL: " + fhir_labs_query_response.url)
