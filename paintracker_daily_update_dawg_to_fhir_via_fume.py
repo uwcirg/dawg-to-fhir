@@ -370,7 +370,8 @@ for pat_row in pat_vals:
                             # Pull all existing procedures for patient from the FHIR store
                             fhir_proc_query_response = None
                             fhir_proc_query_headers = {'Authorization': fhir_auth_token}
-                            fhir_proc_query_params = {'subject': 'Patient/' + str(patient_hapi_id)}
+                            fhir_proc_query_params = {'subject': 'Patient/' + str(patient_hapi_id),
+                                                      "_count": 99999}
                             fhir_proc_query_response = session.get(fhir_endpoint + '/Procedure', headers = fhir_proc_query_headers, params = fhir_proc_query_params)
     
                             logger.debug("FHIR procedure query URL: " + fhir_proc_query_response.url)
@@ -497,19 +498,27 @@ for pat_row in pat_vals:
                                     if continue_flag:
                                         for proc_id in list(set(existing_fhir_proc_ids.keys()).difference(dawg_proc_ids)):
                                             fhir_proc_del_response = None
-                                            fhir_proc_del_response = session.delete(fhir_endpoint + "/Procedure/" + existing_fhir_proc_ids[proc_id])
+                                            fhir_proc_del_query_headers = {'Authorization': fhir_auth_token}
+                                            fhir_proc_del_response = session.delete(fhir_endpoint + "/Procedure/" + existing_fhir_proc_ids[proc_id], headers = fhir_proc_del_query_headers)
 
                                             logger.debug("FHIR procedure DELETE URL: " + fhir_proc_del_response.url)
                                     
                                             if fhir_proc_del_response is not None:
-
-                                                if fhir_proc_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                if fhir_proc_del_response.status_code != 200:
+                                                    logger.critical("FHIR procedure DELETE failed, status code: " + str(fhir_proc_del_response.status_code) + ", exiting...")
+                                                    continue_flag = False
+                                                    
                                                     logger.debug("FHIR procedure DELETE response: " + json.dumps(fhir_proc_del_response.json()))
+                    
+                                                    break
                                                 else:
-                                                    logger.debug("FHIR procedure DELETE response: " + fhir_proc_del_response.text)
-
-                                                logger.info("Procedure ID (" + str(proc_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_proc_ids[proc_id]) + ")...")
-                                                proc_del_cnt = proc_del_cnt + 1
+                                                    if fhir_proc_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                        logger.debug("FHIR procedure DELETE response: " + json.dumps(fhir_proc_del_response.json()))
+                                                    else:
+                                                        logger.debug("FHIR procedure DELETE response: " + fhir_proc_del_response.text)
+    
+                                                    logger.info("Procedure ID (" + str(proc_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_proc_ids[proc_id]) + ")...")
+                                                    proc_del_cnt = proc_del_cnt + 1
                                     else:
                                         logger.critical("Prior error condition met... exiting.")
                                         continue_flag = False
@@ -528,7 +537,8 @@ for pat_row in pat_vals:
                             # Pull all existing medications for patient from the FHIR store
                             fhir_meds_query_response = None
                             fhir_meds_query_headers = {'Authorization': fhir_auth_token}
-                            fhir_meds_query_params = {'subject': 'Patient/' + str(patient_hapi_id)}
+                            fhir_meds_query_params = {'subject': 'Patient/' + str(patient_hapi_id),
+                                                      "_count": 99999}
                             fhir_meds_query_response = session.get(fhir_endpoint + '/MedicationRequest', headers = fhir_meds_query_headers, params = fhir_meds_query_params)
 
                             logger.debug("FHIR medications query URL: " + fhir_meds_query_response.url)
@@ -676,19 +686,27 @@ for pat_row in pat_vals:
                                     if continue_flag:
                                         for meds_id in list(set(existing_fhir_meds_ids.keys()).difference(dawg_meds_ids)):
                                             fhir_meds_del_response = None
-                                            fhir_meds_del_response = session.delete(fhir_endpoint + "/MedicationRequest/" + existing_fhir_meds_ids[meds_id])
+                                            fhir_meds_del_query_headers = {'Authorization': fhir_auth_token}
+                                            fhir_meds_del_response = session.delete(fhir_endpoint + "/MedicationRequest/" + existing_fhir_meds_ids[meds_id], headers = fhir_meds_del_query_headers)
 
                                             logger.debug("FHIR medication DELETE URL: " + fhir_meds_del_response.url)
 
                                             if fhir_meds_del_response is not None:
-
-                                                if fhir_meds_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                if fhir_meds_del_response.status_code != 200:
+                                                    logger.critical("FHIR medication DELETE failed, status code: " + str(fhir_meds_del_response.status_code) + ", exiting...")
+                                                    continue_flag = False
+                                                  
                                                     logger.debug("FHIR medication DELETE response: " + json.dumps(fhir_meds_del_response.json()))
-                                                else:
-                                                    logger.debug("FHIR medication DELETE response: " + fhir_meds_del_response.text)
 
-                                                logger.info("MedicationRequest ID (" + str(meds_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_meds_ids[meds_id]) + ")...")
-                                                meds_del_cnt = meds_del_cnt + 1
+                                                    break
+                                                else:
+                                                    if fhir_meds_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                        logger.debug("FHIR medication DELETE response: " + json.dumps(fhir_meds_del_response.json()))
+                                                    else:
+                                                        logger.debug("FHIR medication DELETE response: " + fhir_meds_del_response.text)
+    
+                                                    logger.info("MedicationRequest ID (" + str(meds_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_meds_ids[meds_id]) + ")...")
+                                                    meds_del_cnt = meds_del_cnt + 1
                                     else:
                                         logger.critical("Prior error condition met... exiting.")
                                         continue_flag = False
@@ -708,7 +726,8 @@ for pat_row in pat_vals:
                             fhir_labs_query_response = None
                             fhir_labs_query_headers = {'Authorization': fhir_auth_token}
                             fhir_labs_query_params = {'subject': 'Patient/' + str(patient_hapi_id),
-                                                     "identifier": 'http://www.uwmedicine.org/lab_order_id|'}
+                                                     "identifier": 'http://www.uwmedicine.org/lab_order_id|',
+                                                     "_count": 99999}
                             fhir_labs_query_response = session.get(fhir_endpoint + '/ServiceRequest', headers = fhir_labs_query_headers, params = fhir_labs_query_params)
 
                             logger.debug("FHIR lab orders query URL: " + fhir_labs_query_response.url)
@@ -853,19 +872,27 @@ for pat_row in pat_vals:
                                     if continue_flag:
                                         for labs_id in list(set(existing_fhir_labs_ids.keys()).difference(dawg_labs_ids)):
                                             fhir_labs_del_response = None
-                                            fhir_labs_del_response = session.delete(fhir_endpoint + "/ServiceRequest/" + existing_fhir_labs_ids[labs_id])
+                                            fhir_labs_del_query_headers = {'Authorization': fhir_auth_token}
+                                            fhir_labs_del_response = session.delete(fhir_endpoint + "/ServiceRequest/" + existing_fhir_labs_ids[labs_id], headers = fhir_labs_del_query_headers)
 
                                             logger.debug("FHIR lab order DELETE URL: " + fhir_labs_del_response.url)
 
                                             if fhir_labs_del_response is not None:
-
-                                                if fhir_labs_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                if fhir_labs_del_response.status_code != 200:
+                                                    logger.critical("FHIR lab order DELETE failed, status code: " + str(fhir_labs_del_response.status_code) + ", exiting...")
+                                                    continue_flag = False
+                                                  
                                                     logger.debug("FHIR lab order DELETE response: " + json.dumps(fhir_labs_del_response.json()))
-                                                else:
-                                                    logger.debug("FHIR lab order DELETE response: " + fhir_labs_del_response.text)
 
-                                                logger.info("ServiceRequest ID (" + str(labs_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_labs_ids[labs_id]) + ")...")
-                                                labs_del_cnt = labs_del_cnt + 1
+                                                    break
+                                                else:
+                                                    if fhir_labs_del_response.headers["content-type"].strip().startswith("application/json"):
+                                                        logger.debug("FHIR lab order DELETE response: " + json.dumps(fhir_labs_del_response.json()))
+                                                    else:
+                                                        logger.debug("FHIR lab order DELETE response: " + fhir_labs_del_response.text)
+    
+                                                    logger.info("ServiceRequest ID (" + str(labs_id) + ") resource deleted, HAPI ID (" + str(existing_fhir_labs_ids[labs_id]) + ")...")
+                                                    labs_del_cnt = labs_del_cnt + 1
                                     else:
                                         logger.critical("Prior error condition met... exiting.")
                                         continue_flag = False
